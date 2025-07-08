@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# Caches
+__pycache__
+
+# IDEs and editors
+.vscode/
+*.swp
