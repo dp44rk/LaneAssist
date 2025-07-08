@@ -3,6 +3,30 @@ import glob
 import os
 from OpencvLaneDetect import OpencvLaneDetect
 
+def putDirection(angle, heading_img):
+    deviation = angle - 90
+    if   deviation >  10:  steer_label = "RIGHT"
+    elif deviation < -10:  steer_label = "LEFT"
+    else:                  steer_label = "STRAIGHT"
+    
+    # 원하는 색상 지정 (B,G,R)
+    color = (0, 255, 255)             # 노란색
+    if steer_label == "RIGHT":
+        color = (0, 165, 255)         # 주황
+    elif steer_label == "LEFT":
+        color = (0, 255,   0)         # 초록
+
+    cv2.putText(
+        heading_img,
+        f"{steer_label}  ({angle:.1f}°)",   # 예: RIGHT (112.3°)
+        (30, 50),                           # 좌상단 위치
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.0,                                # 글자 크기
+        color,
+        2,                                  # 두께
+        cv2.LINE_AA
+    )
+
 def main():
     detector     = OpencvLaneDetect()
     image_paths  = sorted(glob.glob("./frame/*.jpg"))
@@ -23,8 +47,11 @@ def main():
         if heading_img is None or heading_img.size == 0:
             heading_img = frame.copy() 
 
-        cv2.putText(heading_img, f"{angle:.1f} deg", (30,50),
+        cv2.putText(heading_img, f"{angle:.1f} deg", (1100,50),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
+        putDirection(angle, heading_img)
+        
+        
         cv2.imshow("Heading", heading_img)
 
         # ----------------- 키 입력 처리 ----------------- #

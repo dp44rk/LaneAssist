@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import logging
 import math
+from PIDSteering import PIDSteering
+from calibration import Calibration
 
 # ---------- for debugge ----------
 SHOW_IMAGE = True          # True면 모든 중간 이미지를 띄움
@@ -11,28 +13,56 @@ WIN_COLS   = 3             # 한 줄 window count
 
 class OpencvLaneDetect(object):
     def __init__(self):
+        self.steer_ctl = PIDSteering(kp=0.55, ki=0.0005, kd=1.1,
+                                ema_alpha=0.10, rate_limit=3)
         self.curr_steering_angle = 90
+        self.filtered_angle      = 90 
+        self.calib = Calibration()
 
     def get_lane(self, frame):
         show_image("orignal", frame)
-        lane_lines, frame = detect_lane(frame)
+        lane_lines, frame = detect_lane(frame, self.calib)
         return lane_lines, frame
 
+    # def get_steering_angle(self, img_lane, lane_lines):
+        
+    #     # if len(lane_lines) == 0:
+    #     #     return 0, None
+    #     # new_steering_angle = compute_steering_angle(img_lane, lane_lines)
+    #     # self.curr_steering_angle = stabilize_steering_angle(self.curr_steering_angle, new_steering_angle, len(lane_lines))
+    #     x_off = compute_x_offset(img_lane, lane_lines)
+    #     angle = steer_ctl.update(x_off)          # ← PIP 클래스 호출
+    #     curr_heading_image = display_heading_line(img_lane, angle)
+
+    #     curr_heading_image = display_heading_line(img_lane, self.curr_steering_angle)
+    #     show_image("heading", curr_heading_image)
+
+    #     return self.curr_steering_angle, curr_heading_image
+
+        
     def get_steering_angle(self, img_lane, lane_lines):
+        # ② 차선 없으면 이전 각도 유지
         if len(lane_lines) == 0:
-            return 0, None
-        new_steering_angle = compute_steering_angle(img_lane, lane_lines)
-        self.curr_steering_angle = stabilize_steering_angle(self.curr_steering_angle, new_steering_angle, len(lane_lines))
+            heading = display_heading_line(img_lane, self.curr_steering_angle)
+            return self.curr_steering_angle, heading
 
-        curr_heading_image = display_heading_line(img_lane, self.curr_steering_angle)
-        show_image("heading", curr_heading_image)
+        # ③ x-offset 계산 → PIDSteering 업데이트
+        x_off = compute_x_offset(img_lane, lane_lines)
+        self.curr_steering_angle = self.steer_ctl.update(x_off)
 
-        return self.curr_steering_angle, curr_heading_image
+        ALPHA = 0.2                    # 0.0(부드럽다) ↔ 1.0(즉각 반응)
+        self.filtered_angle = (ALPHA * self.curr_steering_angle +
+                            (1 - ALPHA) * self.filtered_angle)
+
+        # ④ 헤딩 라인 한 번만 그려서 반환
+        heading = display_heading_line(img_lane, self.filtered_angle)
+        show_image("heading", heading)
+        return self.filtered_angle, heading
 
 ############################
 # Frame processing steps
 ############################
-def detect_lane(frame):
+def detect_lane(frame, calib):
     logging.debug("detecting lane lines (ROI → Edge)...")
 
     # 1) ---------------- ROI 마스크 & 시각화 ----------------
@@ -42,6 +72,12 @@ def detect_lane(frame):
     mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
     overlay  = cv2.addWeighted(frame, 0.7, mask_bgr, 0.3, 0)
     show_image("ROI overlay", overlay, True)
+
+    # 2. BEV 변환
+    bev = cv2.warpPerspective(roi_frame, calib.H() , (roi_frame.shape[1], roi_frame.shape[0]), flags=cv2.INTER_LINEAR)
+    show_image("bev view", bev, True)
+
+
 
     # 2) ---------------- Edge 검출 --------------------------
     edges = detect_edges(roi_frame)             # ROI 내부 픽셀만 사용
@@ -110,7 +146,6 @@ def detect_edges(frame):
     return edges
 
 
-
 def region_of_interest(img, return_polygon=False):
     """
     img  : BGR(3채널) 또는 GRAY(1채널) 이미지
@@ -120,8 +155,8 @@ def region_of_interest(img, return_polygon=False):
     mask = np.zeros((h, w), dtype=np.uint8)
 
     # ▸ ROI 비율 (필요하면 실험으로 조정)
-    top_y   = int(h * 0.50)
-    left_x  = int(w * 0.25)
+    top_y   = int(h * 0.60)
+    left_x  = int(w * 0.15)
     right_x = int(w * 0.95)
 
     polygon = np.array([[
@@ -343,3 +378,13 @@ def make_points(frame, line):
     x2 = max(-width, min(2 * width, int((y2 - intercept) / slope)))
     return [[x1, y1, x2, y2]]
 
+def compute_x_offset(frame, lane_lines):
+    height, width, _ = frame.shape
+    if len(lane_lines) == 0:
+        return 0                         # fallback → 그대로 직진
+    if len(lane_lines) == 1:
+        x1, _, x2, _ = lane_lines[0][0]
+        return (x2 + x1) / 2 - width/2
+    _, _, lx2, _ = lane_lines[0][0]
+    _, _, rx2, _ = lane_lines[1][0]
+    return (lx2 + rx2)/2 - width/2
