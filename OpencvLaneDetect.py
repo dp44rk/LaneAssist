@@ -3,12 +3,10 @@ import numpy as np
 import logging
 import math
 
-# from pid import PID
-
 # ---------- for debugge ----------
 SHOW_IMAGE = True          # True면 모든 중간 이미지를 띄움
 WIN_SIZE   = (420, 320)    # 각 창 크기 (width, height)
-WIN_COLS   = 3             # 한 줄에 몇 칸씩 배치할지
+WIN_COLS   = 3             # 한 줄 window count
 # ----------------------------------
 
 class OpencvLaneDetect(object):
@@ -88,27 +86,26 @@ def detect_edges(frame):
     top_hat = cv2.morphologyEx(hsv[...,2], cv2.MORPH_TOPHAT, kernel)
     white[top_hat < 30] = 0        # 국부 대비가 낮으면 제거
 
-    # 프레임마다 상위 1 % 밝기를 자동 임계값으로 쓰면
-    # 낮·터널·역광 상황 모두 커버 가능
-    v95 = np.percentile(hsv[...,2], 99)    # 99번째 분위 = '최상위 1 %'
+    # 프레임마다 상위 1 % 밝기를 자동 임계값으로 설정
+    v95 = np.percentile(hsv[...,2], 99)
     glare = (hsv[...,2] > v95) & (hsv[...,1] < 30) & (hls[...,1] > v95)
     glare = glare.astype(np.uint8) * 255
 
     mask = cv2.subtract(white, glare)
     show_image("white mask (raw)", mask, True)
 
-    # # ---------- (4) 형태학 열기/닫기 ----------
-    # k = cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
-    # mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,  k, iterations=1)
-    # mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=1)
-    # show_image("white mask (clean)", mask, True)
+    # 노이즈 억제
+    k = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=1)  # 작은 구멍 메우기
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN , k, iterations=1)  # 점·실선 제거
+    show_image("noise mask", mask, True)
 
     # ---------- (5) Gaussian Blur → Canny ----------
     # 3×3 블러로 렌즈플레어처럼 날카로운 잔여 에지 완화  ⬅︎ 추가
     blurred = cv2.GaussianBlur(mask, (3, 3), 0)   # sigmaX=0 (자동)
 
     # ---------- (5) Canny ----------
-    edges = cv2.Canny(mask, 50, 120)
+    edges = cv2.Canny(blurred, 50, 120)
     show_image("white edge", edges)
     return edges
 
@@ -123,7 +120,7 @@ def region_of_interest(img, return_polygon=False):
     mask = np.zeros((h, w), dtype=np.uint8)
 
     # ▸ ROI 비율 (필요하면 실험으로 조정)
-    top_y   = int(h * 0.60)
+    top_y   = int(h * 0.50)
     left_x  = int(w * 0.25)
     right_x = int(w * 0.95)
 
@@ -190,17 +187,11 @@ def average_slope_intercept(frame, line_segments):
             intercept = fit[1]
             if slope < 0:
                 if x1 < left_region_boundary and x2 < left_region_boundary:
-                    #left_fit.append((slope, intercept))
                     if slope < -0.75:
-                        #print("left points:", x1, x2, y1, y2) 
-                        #print("left slope", slope, "intercepts:", intercept)
                         left_fit.append((slope, intercept))
             else:
                 if x1 > right_region_boundary and x2 > right_region_boundary:
-                    #right_fit.append((slope, intercept))
                     if slope > 0.75:
-                        #print("right points:", x1, x2, y1, y2) 
-                        #print("right slope", slope, "intercepts:", intercept)
                         right_fit.append((slope, intercept))
 
     left_fit_average = np.average(left_fit, axis=0)
@@ -214,28 +205,6 @@ def average_slope_intercept(frame, line_segments):
     logging.debug('lane lines: %s' % lane_lines)  # [[[316, 720, 484, 432]], [[1009, 720, 718, 432]]]
 
     return lane_lines
-
-# pid = PID(Kp=0.5, Ki=0.0005, Kd=1.2)
-
-# def compute_control(frame, lane_lines, dt):
-#     if len(lane_lines) < 1:
-#         return 90   # 차선 없으면 직진(또는 마지막 값을 유지)
-
-#     height, width, _ = frame.shape
-
-#     # ① 오프셋 계산 (원 코드와 동일)
-#     if len(lane_lines) == 1:
-#         x1, _, x2, _ = lane_lines[0][0]
-#         x_offset = (x2 + x1)/2 - width/2
-#     else:
-#         _, _, left_x2, _  = lane_lines[0][0]
-#         _, _, right_x2, _ = lane_lines[1][0]
-#         x_offset = ((left_x2 + right_x2)/2) - width/2
-
-#     # ② PID 제어
-#     steering_angle = pid.update(err=x_offset, dt=dt)
-#     return int(steering_angle)
- 
 
 def compute_steering_angle(frame, lane_lines):
     """ Find the steering angle based on lane line coordinate
