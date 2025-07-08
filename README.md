@@ -114,3 +114,7 @@ Set `SHOW_IMAGE = True` in `OpencvLaneDetect.py` to open the following windows:
 | **heading**       | Final steering overlay & numerical angle     |
 
 **Maintainer**: **doyeon**  <dypark@cau.ac.kr>
+
+## Simulation
+![Lane detection demo1](./etc/vid1.gif)
+![Lane detection demo2](./etc/vid2.gif)

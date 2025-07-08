@@ -29,7 +29,7 @@ def putDirection(angle, heading_img):
 
 def main():
     detector     = OpencvLaneDetect()
-    image_paths  = sorted(glob.glob("./frame/*.jpg"))
+    image_paths  = sorted(glob.glob("./frame/c/*.jpg"))
 
     if not image_paths:
         raise FileNotFoundError("./frame 폴더에 JPG 이미지가 없습니다.")
@@ -46,6 +46,7 @@ def main():
         angle, heading_img   = detector.get_steering_angle(frame, lane_lines)
         if heading_img is None or heading_img.size == 0:
             heading_img = frame.copy() 
+
 
         cv2.putText(heading_img, f"{angle:.1f} deg", (1100,50),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
