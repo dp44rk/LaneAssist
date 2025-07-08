@@ -20,6 +20,8 @@ def main():
 
         lane_lines, lane_img = detector.get_lane(frame)
         angle, heading_img   = detector.get_steering_angle(frame, lane_lines)
+        if heading_img is None or heading_img.size == 0:
+            heading_img = frame.copy() 
 
         cv2.putText(heading_img, f"{angle:.1f} deg", (30,50),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)

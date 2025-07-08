@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 import logging
 import math
-import datetime
-import sys
+
+# from pid import PID
 
 # ---------- for debugge ----------
 SHOW_IMAGE = True          # True면 모든 중간 이미지를 띄움
@@ -59,71 +59,6 @@ def detect_lane(frame):
 
     return lane_lines, lane_lines_image
 
-    
-def refine_white_mask(mask):
-    """
-    반사 얼룩(두꺼운/둥근 부분)을 없애고
-    가느다란 차선 스트립만 남긴다.
-    """
-    # --- A. 1열짜리 수직 커널로 '두께 얇히기' ---
-    vert_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 15))
-    thin = cv2.morphologyEx(mask, cv2.MORPH_ERODE,  vert_kernel, iterations=1)
-    thin = cv2.morphologyEx(thin, cv2.MORPH_DILATE, vert_kernel, iterations=1)
-    #   → 굵은 덩어리가 잘려 나가고, 길쭉한 세로 띠는 남음
-
-    # --- B. Contour 모양 필터 ---
-    contours, _ = cv2.findContours(thin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    clean = np.zeros_like(mask)
-
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < 200:                # 너무 작은 점 → 제거
-            continue
-
-        x,y,w,h = cv2.boundingRect(cnt)
-        aspect  = max(w, h) / (min(w, h) + 1e-5)
-
-        # '길쭉함'과 '폭 <= 25px' 조건
-        if aspect < 3.0 or min(w,h) > 25:
-            continue    # 둥글거나 두꺼우면 탈락
-
-        cv2.drawContours(clean, [cnt], -1, 255, thickness=-1)
-
-    return clean
-
-def refine_white_mask(mask):
-    """
-    반사 얼룩(두꺼운/둥근 부분)을 없애고
-    가느다란 차선 스트립만 남긴다.
-    """
-    # --- A. 1열짜리 수직 커널로 '두께 얇히기' ---
-    vert_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 15))
-    thin = cv2.morphologyEx(mask, cv2.MORPH_ERODE,  vert_kernel, iterations=1)
-    thin = cv2.morphologyEx(thin, cv2.MORPH_DILATE, vert_kernel, iterations=1)
-    #   → 굵은 덩어리가 잘려 나가고, 길쭉한 세로 띠는 남음
-
-    # --- B. Contour 모양 필터 ---
-    contours, _ = cv2.findContours(thin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    clean = np.zeros_like(mask)
-
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < 200:                # 너무 작은 점 → 제거
-            continue
-
-        x,y,w,h = cv2.boundingRect(cnt)
-        aspect  = max(w, h) / (min(w, h) + 1e-5)
-
-        # '길쭉함'과 '폭 <= 25px' 조건
-        if aspect < 3.0 or min(w,h) > 25:
-            continue    # 둥글거나 두꺼우면 탈락
-
-        cv2.drawContours(clean, [cnt], -1, 255, thickness=-1)
-
-    return clean
-
-
-
 '''
 To improve red line detection
 1. change hue value: lower_red1[0], upper_red1[0], lower_red2[0], upper_red2[0]
@@ -148,19 +83,29 @@ def detect_edges(frame):
     white = (hsv[...,1] < 60) & (hsv[...,2] > 170)
     white = white.astype(np.uint8) * 255
 
-    # ---------- (2) 글레어(빛 반사) 마스크 ----------
-    glare = (hsv[...,1] < 25) & (hsv[...,2] > 230) & (hls[...,1] > 230)
+    # ── (2) 글레어 마스크 (동적) ────────────────────
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 25))
+    top_hat = cv2.morphologyEx(hsv[...,2], cv2.MORPH_TOPHAT, kernel)
+    white[top_hat < 30] = 0        # 국부 대비가 낮으면 제거
+
+    # 프레임마다 상위 1 % 밝기를 자동 임계값으로 쓰면
+    # 낮·터널·역광 상황 모두 커버 가능
+    v95 = np.percentile(hsv[...,2], 99)    # 99번째 분위 = '최상위 1 %'
+    glare = (hsv[...,2] > v95) & (hsv[...,1] < 30) & (hls[...,1] > v95)
     glare = glare.astype(np.uint8) * 255
 
-    # ---------- (3) 글레어 영역 제거 ----------
-    mask = cv2.subtract(white, glare)        # white & ~glare 와 동일
+    mask = cv2.subtract(white, glare)
     show_image("white mask (raw)", mask, True)
 
-    # ---------- (4) 형태학 열기/닫기 ----------
-    k = cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,  k, iterations=1)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=1)
-    show_image("white mask (clean)", mask, True)
+    # # ---------- (4) 형태학 열기/닫기 ----------
+    # k = cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
+    # mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,  k, iterations=1)
+    # mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=1)
+    # show_image("white mask (clean)", mask, True)
+
+    # ---------- (5) Gaussian Blur → Canny ----------
+    # 3×3 블러로 렌즈플레어처럼 날카로운 잔여 에지 완화  ⬅︎ 추가
+    blurred = cv2.GaussianBlur(mask, (3, 3), 0)   # sigmaX=0 (자동)
 
     # ---------- (5) Canny ----------
     edges = cv2.Canny(mask, 50, 120)
@@ -178,7 +123,7 @@ def region_of_interest(img, return_polygon=False):
     mask = np.zeros((h, w), dtype=np.uint8)
 
     # ▸ ROI 비율 (필요하면 실험으로 조정)
-    top_y   = int(h * 0.40)
+    top_y   = int(h * 0.60)
     left_x  = int(w * 0.25)
     right_x = int(w * 0.95)
 
@@ -269,6 +214,27 @@ def average_slope_intercept(frame, line_segments):
     logging.debug('lane lines: %s' % lane_lines)  # [[[316, 720, 484, 432]], [[1009, 720, 718, 432]]]
 
     return lane_lines
+
+# pid = PID(Kp=0.5, Ki=0.0005, Kd=1.2)
+
+# def compute_control(frame, lane_lines, dt):
+#     if len(lane_lines) < 1:
+#         return 90   # 차선 없으면 직진(또는 마지막 값을 유지)
+
+#     height, width, _ = frame.shape
+
+#     # ① 오프셋 계산 (원 코드와 동일)
+#     if len(lane_lines) == 1:
+#         x1, _, x2, _ = lane_lines[0][0]
+#         x_offset = (x2 + x1)/2 - width/2
+#     else:
+#         _, _, left_x2, _  = lane_lines[0][0]
+#         _, _, right_x2, _ = lane_lines[1][0]
+#         x_offset = ((left_x2 + right_x2)/2) - width/2
+
+#     # ② PID 제어
+#     steering_angle = pid.update(err=x_offset, dt=dt)
+#     return int(steering_angle)
  
 
 def compute_steering_angle(frame, lane_lines):
