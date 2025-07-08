@@ -66,10 +66,6 @@ python main.py               # expects JPGs under ./frame/
 ```
 Press **space** to pause/resume, **q** to quit.
 
-### B. Live webcam (example)
-
-Modify the loop in `main.py` to read from `cv2.VideoCapture(0)` instead of a glob. The rest of the pipeline is identical.
-
 ---
 
 ## 🏗️  Pipeline Overview
