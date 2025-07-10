@@ -16,13 +16,17 @@ Tested on dash‑cam sequences and live USB cameras.
 ├── main.py                # entry‑point: iterates images / webcam, displays angle
 ├── OpencvLaneDetect.py    # end‑to‑end lane‑detect + steering‑angle class
 ├── PIDSteering.py         # generic PID implementation with EMA + rate limiter
-├── get_calibration.py     # chessboard camera‑calibration script → calib_params.json
-├── calibration.py         # loads matrix & wraps homography for BEV (⚠️ add your own)
 ├── frame/                 # sample JPG frames for quick test
 └── docs/media/            # put screenshots / GIFs here – auto‑referenced in README
 ```
 
 > **Tip** Add your vehicle‑specific ROS node or CAN writer under a new `vehicle/` folder – `main.py` already prints the filtered angle every frame.
+
+---
+
+## Simulation
+![Lane detection demo1](./etc/vid1.gif)
+![Lane detection demo2](./etc/vid2.gif)
 
 ---
 
@@ -40,23 +44,6 @@ pip install matplotlib pyyaml
 
 ---
 
-## 🔧 Camera Calibration (once per lens)
-
-1. Print a **10 × 7 chessboard** (inside corners).  
-2. Capture at least **5 clear images** from different angles and save them under `./frame/` (or any folder).
-3. Run:
-
-```bash
-python get_calibration.py --glob "frame/*.jpg" \
-                          --pattern 10x7 --square 25 \
-                          --out calib_params.json
-```
-
-This will write **`calib_params.json`** and a visualization folder `calib_visual/`.  
-Copy or symlink the JSON next to `calibration.py` so the detector can load it.
-
----
-
 ## 🚀 Quick Start
 
 ### A. Batch frames (offline)
@@ -71,7 +58,6 @@ Press **space** to pause/resume, **q** to quit.
 ## 🏗️  Pipeline Overview
 
 1. **ROI Mask** – trapezoid mask keeps road pixels only.  
-2. **Perspective Warp (IPM)** – transforms ROI to Bird‑Eye‑View using calibration matrix.  
 3. **Edge Extraction** – HSV+HLS threshold → glare suppression → morphology → Canny.  
 4. **HoughLinesP** – extract short segments.  
 5. **Merge & Average** – slope filtering merges segments into ≤2 lines.  
@@ -114,7 +100,3 @@ Set `SHOW_IMAGE = True` in `OpencvLaneDetect.py` to open the following windows:
 | **heading**       | Final steering overlay & numerical angle     |
 
 **Maintainer**: **doyeon**  <dypark@cau.ac.kr>
-
-## Simulation
-![Lane detection demo1](./etc/vid1.gif)
-![Lane detection demo2](./etc/vid2.gif)

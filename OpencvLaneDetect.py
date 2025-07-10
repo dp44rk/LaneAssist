@@ -3,7 +3,6 @@ import numpy as np
 import logging
 import math
 from PIDSteering import PIDSteering
-from calibration import Calibration
 
 # ---------- for debugge ----------
 SHOW_IMAGE = True          # True면 모든 중간 이미지를 띄움
@@ -17,29 +16,12 @@ class OpencvLaneDetect(object):
                                 ema_alpha=0.10, rate_limit=3)
         self.curr_steering_angle = 90
         self.filtered_angle      = 90 
-        self.calib = Calibration()
 
     def get_lane(self, frame):
         show_image("orignal", frame)
-        lane_lines, frame = detect_lane(frame, self.calib)
+        lane_lines, frame = detect_lane(frame)
         return lane_lines, frame
 
-    # def get_steering_angle(self, img_lane, lane_lines):
-        
-    #     # if len(lane_lines) == 0:
-    #     #     return 0, None
-    #     # new_steering_angle = compute_steering_angle(img_lane, lane_lines)
-    #     # self.curr_steering_angle = stabilize_steering_angle(self.curr_steering_angle, new_steering_angle, len(lane_lines))
-    #     x_off = compute_x_offset(img_lane, lane_lines)
-    #     angle = steer_ctl.update(x_off)          # ← PIP 클래스 호출
-    #     curr_heading_image = display_heading_line(img_lane, angle)
-
-    #     curr_heading_image = display_heading_line(img_lane, self.curr_steering_angle)
-    #     show_image("heading", curr_heading_image)
-
-    #     return self.curr_steering_angle, curr_heading_image
-
-        
     def get_steering_angle(self, img_lane, lane_lines):
         # ② 차선 없으면 이전 각도 유지
         if len(lane_lines) == 0:
@@ -62,7 +44,7 @@ class OpencvLaneDetect(object):
 ############################
 # Frame processing steps
 ############################
-def detect_lane(frame, calib):
+def detect_lane(frame):
     logging.debug("detecting lane lines (ROI → Edge)...")
 
     # 1) ---------------- ROI 마스크 & 시각화 ----------------
@@ -72,12 +54,6 @@ def detect_lane(frame, calib):
     mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
     overlay  = cv2.addWeighted(frame, 0.7, mask_bgr, 0.3, 0)
     show_image("ROI overlay", overlay, True)
-
-    # 2. BEV 변환
-    bev = cv2.warpPerspective(roi_frame, calib.H() , (roi_frame.shape[1], roi_frame.shape[0]), flags=cv2.INTER_LINEAR)
-    show_image("bev view", bev, True)
-
-
 
     # 2) ---------------- Edge 검출 --------------------------
     edges = detect_edges(roi_frame)             # ROI 내부 픽셀만 사용
@@ -93,23 +69,16 @@ def detect_lane(frame, calib):
 
     return lane_lines, lane_lines_image
 
-'''
-To improve red line detection
-1. change hue value: lower_red1[0], upper_red1[0], lower_red2[0], upper_red2[0]
-recommand values are 170 ~ 180 and 0 ~ 30. we use 2 masks.
-2. change saturation value: lower_red1[1], lower_red2[1]
-recommand values: 70 ~ 100
-3. change value value: lower_red1[1], lower_red2[1]
-recommand values: 30 ~ 100
-'''
+
+
+"""
+1) BGR → HSV, HLS 변환
+2) 흰색 차선 마스크      : S < 60, V > 170
+3) 글레어(반사) 마스크   : S < 25, V/L > 230
+4) (차선 마스크) − (글레어 마스크)
+5) 모폴로지로 정제 → Canny Edge
+"""
 def detect_edges(frame):
-    """
-    1) BGR → HSV, HLS 변환
-    2) 흰색 차선 마스크      : S < 60, V > 170
-    3) 글레어(반사) 마스크   : S < 25, V/L > 230
-    4) (차선 마스크) − (글레어 마스크)
-    5) 모폴로지로 정제 → Canny Edge
-    """
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     hls = cv2.cvtColor(frame, cv2.COLOR_BGR2HLS)
 
@@ -316,10 +285,6 @@ def display_heading_line(frame, steering_angle, line_color=(0, 0, 255), line_wid
     # heading line (x1,y1) is always center bottom of the screen
     # (x2, y2) requires a bit of trigonometry
 
-    # Note: the steering angle of:
-    # 0-89 degree: turn left
-    # 90 degree: going straight
-    # 91-180 degree: turn right 
     steering_angle_radian = steering_angle / 180.0 * math.pi
     x1 = int(width / 2)
     y1 = height

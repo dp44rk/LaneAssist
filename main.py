@@ -29,7 +29,7 @@ def putDirection(angle, heading_img):
 
 def main():
     detector     = OpencvLaneDetect()
-    image_paths  = sorted(glob.glob("./frame/c/*.jpg"))
+    image_paths  = sorted(glob.glob("./frame/b/*.jpg"))
 
     if not image_paths:
         raise FileNotFoundError("./frame 폴더에 JPG 이미지가 없습니다.")
